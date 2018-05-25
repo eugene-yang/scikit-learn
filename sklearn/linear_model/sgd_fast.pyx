@@ -537,6 +537,12 @@ def average_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
                       intercept_decay,
                       average)
 
+# EY: 
+# 1. Implement a new "resume_sgd" to take in the teacher vector
+# 2. Would need to modify "_plain_sgd" to take account for the additional
+# option. New options for handling teacher vector are required.
+# 3. Also need to modify "average_sgd" and "plain_sgd" to pass dummy variables
+# to new "_plain_sgd".
 
 def _plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
                double intercept,
@@ -666,6 +672,11 @@ def _plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
                 if penalty_type >= L2:
                     # do not scale to negative values when eta or alpha are too
                     # big: instead set the weights to zero
+                    
+                    # EY: add additional regularization for penelize the model
+                    # deviate from the original model. Would need to pass an
+                    # additional vector for the original weights
+
                     w.scale(max(0, 1.0 - ((1.0 - l1_ratio) * eta * alpha)))
                 if update != 0.0:
                     w.add(x_data_ptr, x_ind_ptr, xnnz, update)

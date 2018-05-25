@@ -292,6 +292,9 @@ def fit_binary(est, i, X, y, alpha, C, learning_rate, max_iter,
 
     tol = est.tol if est.tol is not None else -np.inf
 
+    # EY: add the option to take in an teacher weight vector
+    # will implemebnt a kind of sgd in sgd_fast.pyx
+
     if not est.average:
         return plain_sgd(coef, intercept, est.loss_function_,
                          penalty_type, alpha, C, est.l1_ratio,
@@ -916,6 +919,9 @@ class SGDClassifier(BaseSGDClassifier):
     def _predict_log_proba(self, X):
         return np.log(self.predict_proba(X))
 
+
+# EY: Inherit SGDClassifier to build a new classifier with the ability
+# to load a weight vector from numpy array
 
 class BaseSGDRegressor(BaseSGD, RegressorMixin):
 
