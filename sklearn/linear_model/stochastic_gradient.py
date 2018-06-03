@@ -833,27 +833,6 @@ class SGDClassifier(BaseSGDClassifier):
     See also
     --------
     sklearn.svm.LinearSVC, LogisticRegression, Perceptron
-
-    Eugene's Note:
-    --------------
-    SGD Classifier that enforce a teacher model
-    This classifier is a SGD classifier that takes in an additional 
-    a weight vector from the teacher mdoel when fitting. 
-    
-    The transfer learning process has 2 ways to drive the student 
-    model:
-    1. By regularization. The regularization term instead of evaluating
-    on the norm of model coefficients, it evaluates on the distance of 
-    current model coefficients to the teacher coefficients. 
-    2. As starting coefficients
-    3. (TODO) Convert the coefficient vector as an feature vector that
-    allows the model have a similar decision boundary of the teacher 
-    model by training on it.
-
-    The implemetation inherit the SGDClassifier to get the 
-    generic interface but overides the partial_fit implementation
-    for the updated regularization
-
     """
 
     def __init__(self, loss="hinge", penalty='l2', alpha=0.0001, l1_ratio=0.15,
