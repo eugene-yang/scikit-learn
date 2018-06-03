@@ -331,6 +331,7 @@ cdef class SquaredEpsilonInsensitive(Regression):
 
 
 def plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
+              np.ndarray[double, ndim=1, mode='c'] reg_weights,
               double intercept,
               LossFunction loss,
               int penalty_type,
@@ -350,6 +351,8 @@ def plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
     ----------
     weights : ndarray[double, ndim=1]
         The allocated coef_ vector.
+    reg_weights : ndarray[double, ndim=1]
+        The allocated reg_coef_ vector.
     intercept : double
         The initial intercept.
     loss : LossFunction
@@ -410,6 +413,7 @@ def plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
     """
     standard_weights, standard_intercept,\
         _, _, n_iter_ = _plain_sgd(weights,
+                                   reg_weights,
                                    intercept,
                                    None,
                                    0,
@@ -430,6 +434,7 @@ def plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
 
 
 def average_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
+                np.ndarray[double, ndim=1, mode='c'] reg_weights,
                 double intercept,
                 np.ndarray[double, ndim=1, mode='c'] average_weights,
                 double average_intercept,
@@ -452,6 +457,8 @@ def average_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
     ----------
     weights : ndarray[double, ndim=1]
         The allocated coef_ vector.
+    reg_weights : ndarray[double, ndim=1]
+        The allocated reg_coef_ vector.
     intercept : double
         The initial intercept.
     average_weights : ndarray[double, ndim=1]
@@ -520,6 +527,7 @@ def average_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
         The actual number of iter (epochs).
     """
     return _plain_sgd(weights,
+                      reg_weights,
                       intercept,
                       average_weights,
                       average_intercept,
@@ -537,14 +545,9 @@ def average_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
                       intercept_decay,
                       average)
 
-# EY: 
-# 1. Implement a new "resume_sgd" to take in the teacher vector
-# 2. Would need to modify "_plain_sgd" to take account for the additional
-# option. New options for handling teacher vector are required.
-# 3. Also need to modify "average_sgd" and "plain_sgd" to pass dummy variables
-# to new "_plain_sgd".
 
 def _plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
+               np.ndarray[double, ndim=1, mode='c'] reg_weights,
                double intercept,
                np.ndarray[double, ndim=1, mode='c'] average_weights,
                double average_intercept,
@@ -566,6 +569,7 @@ def _plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
     cdef Py_ssize_t n_samples = dataset.n_samples
     cdef Py_ssize_t n_features = weights.shape[0]
 
+    cdef WeightVector regw = WeightVector(reg_weights, None)
     cdef WeightVector w = WeightVector(weights, average_weights)
     cdef double* w_ptr = &weights[0]
     cdef double *x_data_ptr = NULL
@@ -592,6 +596,8 @@ def _plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
     cdef double MAX_DLOSS = 1e12
     cdef double max_change = 0.0
     cdef double max_weight = 0.0
+    cdef double factor = 0.0
+    cdef double scale = 0.0
 
     # q vector is only used for L1 regularization
     cdef np.ndarray[double, ndim = 1, mode = "c"] q = None
@@ -628,7 +634,7 @@ def _plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
                 dataset.next(&x_data_ptr, &x_ind_ptr, &xnnz,
                              &y, &sample_weight)
 
-                p = w.dot(x_data_ptr, x_ind_ptr, xnnz) + intercept
+                p = w.dot(x_data_ptr, x_ind_ptr, xnnz, regw) + intercept
                 if learning_rate == OPTIMAL:
                     eta = 1.0 / (alpha * (optimal_init + t - 1))
                 elif learning_rate == INVSCALING:
@@ -677,7 +683,15 @@ def _plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
                     # deviate from the original model. Would need to pass an
                     # additional vector for the original weights
 
-                    w.scale(max(0, 1.0 - ((1.0 - l1_ratio) * eta * alpha)))
+                    f = (1.0 - l1_ratio) * eta * alpha
+                    w.scale(max(0, 1.0 - f))
+
+                    # l2 with a regulating coef is trickier
+                    if regw.sq_norm > 0.0:
+                        scale = regw.wscale
+                        regw.scale(1)
+                        regw.scale( max(0, 1.0-f) * scale + f )
+                        
                 if update != 0.0:
                     w.add(x_data_ptr, x_ind_ptr, xnnz, update)
                     if fit_intercept == 1:
@@ -695,7 +709,7 @@ def _plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
 
                 if penalty_type == L1 or penalty_type == ELASTICNET:
                     u += (l1_ratio * eta * alpha)
-                    l1penalty(w, q_data_ptr, x_ind_ptr, xnnz, u)
+                    l1penalty(w, regw, q_data_ptr, x_ind_ptr, xnnz, u)
 
                 t += 1
                 count += 1
@@ -730,7 +744,11 @@ def _plain_sgd(np.ndarray[double, ndim=1, mode='c'] weights,
                           " MinMaxScaler might help.") % (epoch + 1))
 
     w.reset_wscale()
-
+    # EY: Put regulating weights into w
+    if regw.sq_norm > 0.0:
+        regw.reset_wscale()
+        w.add_vector(regw)
+    
     return weights, intercept, average_weights, average_intercept, epoch + 1
 
 
@@ -751,7 +769,7 @@ cdef double sqnorm(double * x_data_ptr, int * x_ind_ptr, int xnnz) nogil:
     return x_norm
 
 
-cdef void l1penalty(WeightVector w, double * q_data_ptr,
+cdef void l1penalty(WeightVector w, WeightVector regw, double * q_data_ptr,
                     int *x_ind_ptr, int xnnz, double u) nogil:
     """Apply the L1 penalty to each updated feature
 
@@ -763,15 +781,16 @@ cdef void l1penalty(WeightVector w, double * q_data_ptr,
     cdef int idx = 0
     cdef double wscale = w.wscale
     cdef double *w_data_ptr = w.w_data_ptr
+    cdef double *regw_data_ptr = regw.w_data_ptr
     for j in range(xnnz):
         idx = x_ind_ptr[j]
         z = w_data_ptr[idx]
-        if wscale * w_data_ptr[idx] > 0.0:
+        if wscale * w_data_ptr[idx] - regw_data_ptr[idx] > 0.0:
             w_data_ptr[idx] = max(
                 0.0, w_data_ptr[idx] - ((u + q_data_ptr[idx]) / wscale))
 
-        elif wscale * w_data_ptr[idx] < 0.0:
+        elif wscale * w_data_ptr[idx] - regw_data_ptr[idx] < 0.0:
             w_data_ptr[idx] = min(
                 0.0, w_data_ptr[idx] + ((u - q_data_ptr[idx]) / wscale))
-
+                
         q_data_ptr[idx] += wscale * (w_data_ptr[idx] - z)

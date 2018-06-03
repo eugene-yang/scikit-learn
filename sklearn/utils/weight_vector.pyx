@@ -103,6 +103,34 @@ cdef class WeightVector(object):
 
         self.sq_norm += (xsqnorm * c * c) + (2.0 * innerprod * wscale * c)
 
+    cdef void add_vector(self, WeightVector vector) nogil:
+        """Add another WeightVector to this instance
+
+        Should have a cblas implementation, use cython 
+        for now
+
+        Parameters
+        ----------
+        vector : WeightVector instance
+
+        """
+        cdef int j
+        cdef double r = vector.wscale / self.wscale
+        cdef double* w_data_ptr = self.w_data_ptr
+        cdef double* v_data_ptr = vector.w_data_ptr
+
+        cdef double innerprod = 0.0
+        cdef double xsqnorm = 0.0
+
+        for j in range(self.n_features):
+            w_data_ptr[j] += v_data_ptr[j] * r
+            xsqnorm += v_data_ptr[j]
+            innerprod += w_data_ptr[j] * v_data_ptr[j]
+
+        self.sq_norm += (xsqnorm * r * r) + ( 2.0 * innerprod * r )
+            
+
+
     # Update the average weights according to the sparse trick defined
     # here: http://research.microsoft.com/pubs/192769/tricks-2012.pdf
     # by Leon Bottou
@@ -143,7 +171,7 @@ cdef class WeightVector(object):
         self.average_a += mu * self.average_b * wscale
 
     cdef double dot(self, double *x_data_ptr, int *x_ind_ptr,
-                    int xnnz) nogil:
+                    int xnnz, WeightVector scalar_to_self) nogil:
         """Computes the dot product of a sample x and the weight vector.
 
         Parameters
@@ -164,9 +192,19 @@ cdef class WeightVector(object):
         cdef int idx
         cdef double innerprod = 0.0
         cdef double* w_data_ptr = self.w_data_ptr
-        for j in range(xnnz):
-            idx = x_ind_ptr[j]
-            innerprod += w_data_ptr[idx] * x_data_ptr[j]
+        cdef double* c_data_ptr
+        cdef double r = 0.0
+
+        if scalar_to_self is None:
+            for j in range(xnnz):
+                idx = x_ind_ptr[j]
+                innerprod += w_data_ptr[idx] * x_data_ptr[j]
+        else:
+            c_data_ptr = scalar_to_self.w_data_ptr
+            r = scalar_to_self.wscale / self.wscale
+            for j in range(xnnz):
+                idx = x_ind_ptr[j]
+                innerprod += ( w_data_ptr[idx] + c_data_ptr[idx] * r ) * x_data_ptr[j]
         innerprod *= self.wscale
         return innerprod
 

@@ -20,10 +20,11 @@ cdef class WeightVector(object):
 
     cdef void add(self,  double *x_data_ptr, int *x_ind_ptr,
                   int xnnz, double c) nogil
+    cdef void add_vector(self, WeightVector vector) nogil
     cdef void add_average(self,  double *x_data_ptr, int *x_ind_ptr,
                           int xnnz, double c, double num_iter) nogil
     cdef double dot(self, double *x_data_ptr, int *x_ind_ptr,
-                    int xnnz) nogil
+                    int xnnz, WeightVector scalar_to_self) nogil
     cdef void scale(self, double c) nogil
     cdef void reset_wscale(self) nogil
     cdef double norm(self) nogil
