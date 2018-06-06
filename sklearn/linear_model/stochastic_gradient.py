@@ -593,7 +593,7 @@ class BaseSGDClassifier(six.with_metaclass(ABCMeta, BaseSGD,
                              "Pass the resulting weights as the class_weight "
                              "parameter.".format(self.class_weight))
         return self._partial_fit(X, y, alpha=self.alpha, C=1.0, loss=self.loss,
-                                 learning_rate=self.learning_rate, max_iter=1,
+                                 learning_rate=self.learning_rate, max_iter=self._max_iter,
                                  classes=classes, sample_weight=sample_weight,
                                  coef_init=None, intercept_init=None, 
                                  regulating_coef=regulating_coef)
